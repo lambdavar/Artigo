@@ -12,17 +12,118 @@ from keras.utils import save_img
 from keras.utils import img_to_array
 from keras.utils import array_to_img
 from multiprocessing.pool import Pool
+from multiprocessing.pool import ThreadPool
 import asyncio
 import time
 from concurrent.futures import ProcessPoolExecutor
+from concurrent.futures import ThreadPoolExecutor
 
 def background(f):
     def wrapped(*args, **kwargs):
         #executor = ProcessPoolExecutor()
+        #executor = ThreadPoolExecutor()
         executor = None
         return asyncio.get_event_loop().run_in_executor(executor, f, *args, **kwargs)
 
     return wrapped
+
+# só extrai o arquivo dado como parâmetro para a pasta ./Dados/temp
+def extrai_arquivo(arq):
+    try:
+        ZipFile(arq, 'r').extractall('./Dados/temp/')
+    except:
+        print(f"erro ao extrair {arq}")
+        
+# Adiciona e preenche linhas faltantes nos arquivos com 0
+def corrige_arquivos(timeframes):
+    # só corrige se houve um item em timeframes
+    if timeframes:
+        freq = [item.replace("m", "T") for item in timeframes]
+        for timeframe, freqs in zip(timeframes, freq):
+            df = (pd.read_csv(f"./Dados/Processados/BTCUSDT-{timeframe}.csv", index_col ="Close time"))
+            df.index = pd.to_datetime(df.index, unit="ms")
+            novo_index= pd.date_range(start = df.index[0], end=df.index[-1], freq=freqs)
+            df = df.reindex(novo_index, fill_value=0)
+            # faz virar unix de volta
+            df.index = (df.index - pd.Timestamp("1970-01-01")) // pd.Timedelta("1ms")
+            df.reset_index(inplace=True)
+            df.rename(columns={"index": "Close time"}, inplace=True)
+            df.to_csv(f"./Dados/Processados/BTCUSDT-{timeframe}.csv", index=False)
+    else:
+        print("Nada corrigido")
+        
+# baixa dados, concatena em um dataframe só e salva em um .csv
+# limpa depois
+def baixa_e_concatena(ticker, timeframe, ano_inicial):
+    ano_corrente, mes_corrente, dia_corrente = [dt.date.today().year, dt.date.today().month, dt.date.today().day]
+    
+    # baixa dados da binance conforme ticker e timeframe selecionados para a pasta ./Dados/
+    # timeframes disponiveis: 12h 15m 1d 1h 1m 1mo 1s 1w 2h 30m 3d 3m 4h 5m 6h 8h
+    # tickers disponiveis: https://data.binance.vision/?prefix=data/spot/monthly/klines/
+    url = "https://data.binance.vision/data/spot/monthly/klines/"
+    if not os.path.exists(f"./Dados/Processados/{ticker}-{timeframe}.csv"):
+        for ano in range(ano_inicial, ano_corrente+1):
+            for mes in range(1,12+1):
+                mes = str(mes).zfill(2)
+                if not ((os.path.exists(f"./Dados/temp/{ticker}-{timeframe}-{ano}-{mes}.zip"))):
+                    try:
+                        wget.download(f"{url}{ticker}/{timeframe}/{ticker}-{timeframe}-{ano}-{mes}.zip"
+                                      , out = f"./Dados/temp/")
+                        pass
+                    except:
+                        print(f"\nFalha ao baixar {url}{ticker}/{timeframe}/{ticker}-{timeframe}-{ano}-{mes}.zip")
+                else:
+                    print(f"{ano}/{mes} já baixado")
+    else:
+        print(f"{ticker}-{timeframe} já processado")
+        return
+    
+    # cria uma lista de arquivos do ticker e timeframe selecionado
+    lista_arquivos = os.listdir("./Dados/temp/")
+    lista_arquivos = [x for x in lista_arquivos if x.startswith(f"{ticker}-{timeframe}")]
+    lista_arquivos[-5:]
+    
+    # cria um dataframe vazio pra colocar todos os dados dentro
+    nomes = ["Open time","Open","High","Low","Close","Volume","Close time","Quote asset volume"
+                                 ,"Number of trades","Taker buy base asset volume","Taker buy quote asset volume","Ignore"]
+    df = pd.DataFrame(columns = nomes)
+    
+    # concatena tudo em um CSV e deixa na pasta ./Dados/Processados/
+    for arq in lista_arquivos:
+        extrai_arquivo(f"./Dados/temp/{arq}")
+        df = pd.concat([df, pd.read_csv(f'./Dados/temp/{arq[:-4]}.csv', sep=',',decimal='.'
+                                   , encoding='latin1', names=nomes, header=None)], ignore_index=True, copy=False)
+        os.remove(f"./Dados/temp/{arq[:-4]}.csv")
+    df.drop("Ignore", inplace=True, axis=1)
+    df.set_index("Open time", inplace=True)
+    df.to_csv(f"./Dados/Processados/{ticker}-{timeframe}.csv")
+    
+    print(f"./Dados/Processados/{ticker}-{timeframe}.csv")
+    
+    # deleta tudo que é temporario e já foi processado
+    for arq in lista_arquivos:
+        os.remove(f"./Dados/temp/{arq}")
+    
+    
+    return(timeframe)
+
+
+# cria lista de qtd de minutos ou segundos por timeframe, dependendo de qual for o primeiro timeframe utilizado
+# uso isso somente pra pegar a ultima linha que devemos iterar para criação de janelas
+def timeframes_mesma_unidade(timeframes):
+    lista = []
+    for timeframe in timeframes:
+        qtd = int(timeframe[:-1])
+        unidade = timeframe[-1]
+        if timeframes[0] == "1s":
+            lista.append(int(pd.to_timedelta(qtd, unit=unidade).total_seconds()))
+        elif timeframes[0] == "1m":
+            lista.append(int(pd.to_timedelta(qtd, unit=unidade).total_seconds()/60))
+        else:
+            print("Timeframe inicial não é de 1 minuto ou 1 segundo.")
+    return(lista)
+
+
 
 # cria janela movel de t-lookback pra cada linha de dados do menor timeframe
 def cria_janela(linha, dfs , lookback):
@@ -100,9 +201,10 @@ def gera_imagem2(linha, dfs, lookback, quantis):
     return
 
 def roda_paralelo(linhas, dfs, lookback, quantis):
-    p = Pool(os.cpu_count())
+    #p = Pool()
+    p = ThreadPool()
     lista = []
-
+    
     for linha in range(linhas):
         lista.append(p.apply_async(gera_imagem2, args=(linha, dfs, lookback, quantis)))
 
