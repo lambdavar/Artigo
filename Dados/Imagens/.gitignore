@@ -2,6 +2,5 @@
 *
 # Except this file
 !.gitignore
-!temp/
-!Processados/
-!Imagens/
+!short1/
+!long0/

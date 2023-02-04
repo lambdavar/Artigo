@@ -137,9 +137,9 @@ def cria_janela(linha, dfs , lookback):
     # long se o preço de fechamento é maior no minuto seguinte, short se não, none se igual
     long = None
     if dfs[0][linha, 0] < dfs[0][linha-1, 0]:
-        long = "long"
+        long = "long0"
     elif dfs[0][linha, 0] > dfs[0][linha-1, 0]:
-        long = "short"
+        long = "short1"
 
     i = 1
     while i < len(dfs):
