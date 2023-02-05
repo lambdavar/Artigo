@@ -151,6 +151,7 @@ def cria_janela(linha, dfs , lookback):
     # deleta coluna de close time e retorna
     return(df_janela[:,:-1], long)
 
+
 # usando tambem markov
 # ler o artigo https://arxiv.org/pdf/1506.00327.pdf
 # nesse artigo ele explica o uso de GAF, GDF e MTF ao mesmo tempo em 3 canais
