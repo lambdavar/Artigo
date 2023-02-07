@@ -210,3 +210,14 @@ def roda_paralelo(linhas, dfs, lookback, quantis):
         lista.append(p.apply_async(gera_imagem2, args=(linha, dfs, lookback, quantis)))
 
     output = [p.get() for p in lista]
+
+def image_shape():
+    # pega as dimensões da imagem, que é a dimensão do input
+    if os.path.isfile('./Dados/Imagens/long0/1.png'):
+        img = load_img('./Dados/Imagens/long0/1.png')
+    elif os.path.isfile('./Dados/Imagens/short1/1.png'):
+        img = load_img('./Dados/Imagens/short1/1.png')
+    else:
+        print("sem arquivos de imagem para processar")
+    img = img_to_array(img)
+    return(img.shape)
