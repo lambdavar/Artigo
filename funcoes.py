@@ -17,10 +17,11 @@ import asyncio
 import time
 from concurrent.futures import ProcessPoolExecutor
 from concurrent.futures import ThreadPoolExecutor
+from tqdm.auto import tqdm
 
 def background(f):
     def wrapped(*args, **kwargs):
-        #executor = ProcessPoolExecutor()
+        #executor = ProcessPoolExecutor(max_workers=3)
         #executor = ThreadPoolExecutor()
         executor = None
         return asyncio.get_event_loop().run_in_executor(executor, f, *args, **kwargs)
@@ -190,34 +191,47 @@ def roda_async(linhas, dfs, lookback, quantis):
     # espera tudo acabar antes de continuar                  
     results = loop.run_until_complete(looper)  # Wait until finish
     
-def gera_imagem2(linha, dfs, lookback, quantis):
-    df_janela, decisao = cria_janela(linha, dfs, lookback)
+def gera_imagem2(linha, dfs_close, dfs_volume, lookback, quantis, pasta):
+    df_janela, decisao = cria_janela(linha, dfs_close, lookback)
+    
     # se decisao não é long nem short ou tem um buraco nos dados no meio da janela, pula a iteração
     if decisao == None or (0 in df_janela):
         return
-    # cria gaf image
+    
+    df_janela_volume = cria_janela(linha, dfs_volume, lookback)[0]
+    
+    # cria gaf images
     img_array = cria_gaf(df_janela.T, quantis)
-    # salva como imagem na pasta long ou short
-    save_img(f'./Dados/Imagens/{decisao}/{linha}.png', array_to_img(img_array), scale=False)
+    img_array = np.vstack((img_array, cria_gaf(df_janela_volume.T, quantis)))
+    
+    # salva como imagem na pasta (treino ou teste)/(long ou short)
+    
+    save_img(f'./Dados/Imagens/{pasta}/{decisao}/{linha}.png', array_to_img(img_array), scale=False)
     return
 
-def roda_paralelo(linhas, dfs, lookback, quantis):
-    #p = Pool()
+def roda_paralelo(linhas_treino, linhas_teste, dfs_close, dfs_volume, lookback, quantis):
+    #p = Pool(2)
     p = ThreadPool()
     lista = []
     
-    for linha in range(linhas):
-        lista.append(p.apply_async(gera_imagem2, args=(linha, dfs, lookback, quantis)))
+    for linha in linhas_teste:
+        lista.append(p.apply_async(gera_imagem2, args=(linha, dfs_close, dfs_volume, lookback, quantis, "teste")))
+    
+    for linha in linhas_treino:
+        lista.append(p.apply_async(gera_imagem2, args=(linha, dfs_close, dfs_volume, lookback, quantis, "treino")))
+    
+    for p in tqdm(lista):
+        p.get()
 
-    output = [p.get() for p in lista]
 
 def image_shape():
     # pega as dimensões da imagem, que é a dimensão do input
-    if os.path.isfile('./Dados/Imagens/long0/1.png'):
-        img = load_img('./Dados/Imagens/long0/1.png')
-    elif os.path.isfile('./Dados/Imagens/short1/1.png'):
-        img = load_img('./Dados/Imagens/short1/1.png')
+    if os.path.isfile('./Dados/Imagens/teste/long0/1.png'):
+        img = load_img('./Dados/Imagens/teste/long0/1.png')
+    elif os.path.isfile('./Dados/Imagens/teste/short1/1.png'):
+        img = load_img('./Dados/Imagens/teste/short1/1.png')
     else:
-        print("sem arquivos de imagem para processar")
+        print("sem arquivos de imagem para pegar o tamanho")
+        return
     img = img_to_array(img)
     return(img.shape)
