@@ -2,3 +2,6 @@
 __pycache__/
 modelo/
 modelo_csvm/
+cnn_svm/
+CNN_COVID_SIMULACAO.R
+introduction-to-scikit-learn.ipynb
