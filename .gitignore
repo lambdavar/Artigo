@@ -1,6 +1,6 @@
 .ipynb_checkpoints/
 __pycache__/
-modelo/
+modelo*/
 modelo_csvm/
 cnn_svm/
 CNN_COVID_SIMULACAO.R
