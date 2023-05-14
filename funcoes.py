@@ -129,7 +129,7 @@ def timeframes_mesma_unidade(timeframes):
 # cria janela movel de t-lookback pra cada linha de dados do menor timeframe
 def cria_janela(linha, dfs , lookback):
     # cria janela vazia. precisa ter 1 coluna a mais que a qtd de timeframes
-    df_janela = np.full(shape= (lookback, len(dfs)+1), fill_value=np.nan, dtype="float32")
+    df_janela = np.full(shape= (lookback, len(dfs)+1), fill_value=np.nan, dtype="float64")
     # coloca o preco de fechamento de 1m na primeira coluna e o close time de 1m na ultima coluna
     df_janela[:, 0] = dfs[0][linha:linha+lookback, 0]
     df_janela[:, -1] = dfs[0][linha:linha+lookback, -1]
@@ -150,7 +150,7 @@ def cria_janela(linha, dfs , lookback):
         df_janela[:, i] = dfs[i][index:index+lookback, 0]
         i += 1
     # deleta coluna de close time e retorna
-    return(df_janela[:,:-1], long)
+    return(df_janela[:,:-1], long, int(df_janela[0,-1]))
 
 
 # usando tambem markov
@@ -171,7 +171,7 @@ def cria_gaf(dft, quantis):
     # depois une as 9(timeframes) matrizes geradas  horizontalmente com np.vstack
     return np.hstack(np.stack((gasf,gadf, mtf), axis=-1))
 
-@background
+#@background
 def gera_imagem(linha, dfs, lookback, quantis):
     df_janela, decisao = cria_janela(linha, dfs, lookback)
     # se decisao não é long nem short ou tem um buraco nos dados no meio da janela, pula a iteração
@@ -190,9 +190,10 @@ def roda_async(linhas, dfs, lookback, quantis):
     looper = asyncio.gather(*[gera_imagem(linha, dfs, lookback, quantis) for linha in range(linhas)])         # Run the loop
     # espera tudo acabar antes de continuar                  
     results = loop.run_until_complete(looper)  # Wait until finish
-    
+
+#@background 
 def gera_imagem2(linha, dfs_close, dfs_volume, lookback, quantis, pasta):
-    df_janela, decisao = cria_janela(linha, dfs_close, lookback)
+    df_janela, decisao, timestamp = cria_janela(linha, dfs_close, lookback)
     
     # se decisao não é long nem short ou tem um buraco nos dados no meio da janela, pula a iteração
     if decisao == None or (0 in df_janela):
@@ -206,7 +207,11 @@ def gera_imagem2(linha, dfs_close, dfs_volume, lookback, quantis, pasta):
     
     # salva como imagem na pasta (treino ou teste)/(long ou short)
     
-    save_img(f'./Dados/Imagens/{pasta}/{decisao}/{linha}.png', array_to_img(img_array), scale=False)
+    save_img(f'./Dados/Imagens/{pasta}/{decisao}/{timestamp}.png', array_to_img(img_array), scale=False)
+    # converte pra imagem usando pil
+    #from PIL import Image as im
+    #img_array = (((img_array+1)/2)*255).astype("uint8")
+    #im.fromarray(img_array, mode="RGB").save(f'./Dados/Imagens/{pasta}/{decisao}/{timestamp}.png')
     return
 
 def roda_paralelo(linhas_treino, linhas_teste, dfs_close, dfs_volume, lookback, quantis):
@@ -223,13 +228,23 @@ def roda_paralelo(linhas_treino, linhas_teste, dfs_close, dfs_volume, lookback, 
     for p in tqdm(lista):
         p.get()
 
+def roda_async2(linhas_treino, linhas_teste, dfs_close, dfs_volume, lookback, quantis):
+    # rodar em paralelo
+    loop = asyncio.get_event_loop()                                       # Have a new event loop
+    # pra todas as linhas usa a funcao gera_imagem
+    looper1 = asyncio.gather(*[gera_imagem2(linha, dfs_close, dfs_volume, lookback, quantis, "teste") for linha in linhas_teste])
+    looper2 = asyncio.gather(*[gera_imagem2(linha, dfs_close, dfs_volume, lookback, quantis, "treino") for linha in linhas_treino])
+    loopers = asyncio.gather(looper1, looper2)
+    # Run the loop
+    # espera tudo acabar antes de continuar                  
+    results = loop.run_until_complete(loopers)  # Wait until finish
 
 def image_shape():
     # pega as dimensões da imagem, que é a dimensão do input
-    if os.path.isfile('./Dados/Imagens/teste/long0/1.png'):
-        img = load_img('./Dados/Imagens/teste/long0/1.png')
-    elif os.path.isfile('./Dados/Imagens/teste/short1/1.png'):
-        img = load_img('./Dados/Imagens/teste/short1/1.png')
+    if os.path.isfile('./Dados/Imagens/teste/long0/1655745299999.png'):
+        img = load_img('./Dados/Imagens/teste/long0/1655745299999.png')
+    elif os.path.isfile('./Dados/Imagens/teste/short1/1655745299999.png'):
+        img = load_img('./Dados/Imagens/teste/short1/1655745299999.png')
     else:
         print("sem arquivos de imagem para pegar o tamanho")
         return
