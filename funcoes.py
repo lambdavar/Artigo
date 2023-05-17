@@ -157,12 +157,12 @@ def cria_janela(linha, dfs , lookback):
 # ler o artigo https://arxiv.org/pdf/1506.00327.pdf
 # nesse artigo ele explica o uso de GAF, GDF e MTF ao mesmo tempo em 3 canais
 # também usa uma SVM no final da CNN dele
-def cria_gaf(dft, quantis):
+def cria_gaf(dft, quantis, img_size):
     # cria uma imagem gaf RGB
     # precisa da df_janela transposta pra funcionar
-    gasf = GramianAngularField(method='summation')#, image_size=0.5)
-    gadf = GramianAngularField(method='difference')#, image_size=0.5)
-    mtf = MarkovTransitionField(n_bins=quantis)#, image_size=0.5)# , 
+    gasf = GramianAngularField(method='summation', image_size=img_size)
+    gadf = GramianAngularField(method='difference', image_size=img_size)
+    mtf = MarkovTransitionField(n_bins=quantis, image_size=img_size)# , 
     gadf = gadf.transform(dft)
     gasf = gasf.transform(dft)
     mtf = mtf.transform(dft)
@@ -192,7 +192,7 @@ def roda_async(linhas, dfs, lookback, quantis):
     results = loop.run_until_complete(looper)  # Wait until finish
 
 #@background 
-def gera_imagem2(linha, dfs_close, dfs_volume, lookback, quantis, pasta):
+def gera_imagem2(linha, dfs_close, dfs_volume, lookback, quantis, pasta, img_size):
     df_janela, decisao, timestamp = cria_janela(linha, dfs_close, lookback)
     
     # se decisao não é long nem short ou tem um buraco nos dados no meio da janela, pula a iteração
@@ -202,8 +202,8 @@ def gera_imagem2(linha, dfs_close, dfs_volume, lookback, quantis, pasta):
     df_janela_volume = cria_janela(linha, dfs_volume, lookback)[0]
     
     # cria gaf images
-    img_array = cria_gaf(df_janela.T, quantis)
-    img_array = np.vstack((img_array, cria_gaf(df_janela_volume.T, quantis)))
+    img_array = cria_gaf(df_janela.T, quantis, img_size)
+    img_array = np.vstack((img_array, cria_gaf(df_janela_volume.T, quantis, img_size)))
     
     # salva como imagem na pasta (treino ou teste)/(long ou short)
     
