@@ -2,7 +2,3 @@
 *
 # Except this file
 !.gitignore
-!temp/
-!Processados/
-!Imagens/
-!TFRecords/
