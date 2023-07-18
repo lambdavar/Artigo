@@ -18,6 +18,20 @@ import time
 from concurrent.futures import ProcessPoolExecutor
 from concurrent.futures import ThreadPoolExecutor
 from tqdm.auto import tqdm
+import tensorflow as tf
+from tensorflow import keras
+from tensorflow.keras import layers
+from keras.optimizers import Adam
+from keras.optimizers import Adagrad
+from keras.optimizers import SGD
+from tensorflow.keras.callbacks import ModelCheckpoint, EarlyStopping, TensorBoard
+
+from sklearn.metrics import classification_report
+from sklearn.metrics import f1_score
+from sklearn.metrics import precision_score
+from sklearn.metrics import recall_score
+from sklearn.metrics import accuracy_score
+from sklearn.metrics import roc_auc_score
 
 def background(f):
     def wrapped(*args, **kwargs):
@@ -250,3 +264,139 @@ def image_shape():
         return
     img = img_to_array(img)
     return(img.shape)
+
+def pega_files_labels(path):
+    list_subfolders = [f.name for f in os.scandir(path) if f.is_dir()]
+    list_subfolders
+
+    df = pd.DataFrame()
+    
+    i=0
+    for subfolder in list_subfolders:
+        path2 = path + str(subfolder)
+        # pega arquivos .npz
+        arquivos = [item.path for item in os.scandir(path2) if item.name.endswith(".tfrecords")]
+        # poe num df temporario que iremos juntar com o principal
+        df_temp = pd.DataFrame(arquivos, columns=["arquivos"])
+        df_temp["labels"] = i
+        # junta com o principal
+        df = pd.concat([df, df_temp], axis=0, ignore_index=True)
+        i += 1
+    # retorna lista de arquivos e labels
+    return df["arquivos"].to_numpy(), df["labels"].to_numpy(dtype=bool)
+
+def decode_fn(tfrecord, img_shape=(40, 100, 3), label=True):
+    '''
+    Decodifica arquivos .tfrecords para que seja acessado como um dicionário pelo tensorflow
+    
+    Args:
+    tfrecord: Arquivo tfrecord lido com a função tf.data.TFRecordDataset
+    img_shape: shape de numpy array
+    '''
+    data =  tf.io.parse_single_example(
+      # Data
+      tfrecord,
+
+      # Schema
+      {
+        #'timestamp': tf.io.FixedLenFeature([], tf.int64),
+        'label': tf.io.FixedLenFeature([], tf.int64),
+        "image": tf.io.FixedLenFeature(img_shape, tf.float32)},
+    )
+    
+    if label==True:
+        return data["image"], data["label"]
+    elif label==False:
+        return data["image"]
+    else:
+        print("valor de label inválido. Precisa ser true ou false")
+        return
+
+def cria_batches(batch_size, img_shape, valid_data=False, test_data=False, train_data=False):
+    # se for treino precisa embaralhar antes
+    if train_data == True:
+        print("Criando dados de treino")
+        pasta = "treino"
+        path = f"./Dados/TFRecords/{pasta}/"
+        # pega nomes e labels
+        filenames, labels = pega_files_labels(path)
+        # embaralha
+        np.random.shuffle(filenames)
+        # lê arquivos
+        data = tf.data.TFRecordDataset(
+            filenames, compression_type="ZLIB", num_parallel_reads=tf.data.AUTOTUNE).map(
+            lambda x: decode_fn(x, img_shape, label=True), num_parallel_calls=tf.data.AUTOTUNE, deterministic=False).batch(batch_size).prefetch(tf.data.AUTOTUNE)
+        return data
+    # se for validacao não embaralha
+    elif valid_data == True:
+        print("Criando dados de validacao")
+        pasta = "validacao"
+        path = f"./Dados/TFRecords/{pasta}/"
+        # pega nomes e labels
+        filenames, labels = pega_files_labels(path)
+        filenames = tf.data.Dataset.from_tensor_slices(filenames)
+        # le a array
+        data = tf.data.TFRecordDataset(
+            filenames, compression_type="ZLIB", num_parallel_reads=tf.data.AUTOTUNE).map(
+            lambda x: decode_fn(x, img_shape, label=True), num_parallel_calls=tf.data.AUTOTUNE, deterministic=False).batch(batch_size).prefetch(tf.data.AUTOTUNE)
+        return data
+    # Se for teste não tem labels
+    elif test_data == True:
+        print("Criando dados de teste")
+        pasta = "teste"
+        path = f"./Dados/TFRecords/{pasta}/"
+        # pega nomes e labels
+        filenames, labels = pega_files_labels(path)
+        filenames = tf.data.Dataset.from_tensor_slices(filenames)
+        # le a array
+        data = tf.data.TFRecordDataset(
+            filenames, compression_type="ZLIB").map(
+            lambda x: decode_fn(x, img_shape, label=True)).batch(batch_size)
+            #pega_imagem).batch(batch_size)
+        # pega batch
+        #data_batch = data.batch(batch_size)
+        return data
+    else:
+        print("Chame a função corretamente")
+        return
+    
+# rede CNN
+def CNN(img_shape):
+    model = keras.Sequential()
+    model.add(layers.Input(shape=img_shape))
+    
+    # reescala os dados pra entre 0 e 1
+    #model.add(layers.Rescaling(1./255))
+    
+    # convolucao
+    model.add(layers.Conv2D(filters=32, kernel_size=(3, 3), activation='relu'))
+    model.add(layers.MaxPool2D(pool_size=(1, 2)))
+    model.add(layers.Dropout(0.15))
+    
+    # classificação
+    model.add(layers.Flatten(name="flatten"))
+    model.add(layers.Dense(16, activation="relu"))
+    model.add(layers.Dense(8, activation="linear"))
+    model.add(layers.Dense(1, activation="sigmoid"))
+    
+    opt = Adagrad(learning_rate=0.1)
+    model.compile(loss = "binary_crossentropy", optimizer=opt, metrics=["accuracy",
+                                                                     keras.metrics.Precision(),
+                                                                     keras.metrics.Recall(), 
+                                                                     keras.metrics.AUC()])
+
+    return model
+
+
+def treina_modelo_CNN(num_modelo, img_shape, batch_size):
+    model = CNN(img_shape)
+    # precisa definir o checkpoint antes de começar cada CNN. Se não acaba usando um do outro
+    checkpoint = ModelCheckpoint(f"./modelos/upgrade/modelo CNN {num_modelo}", monitor='val_accuracy', verbose=0, save_best_only=True, mode='max')
+    # para de treinar se a acuracia de treino parar de aumentar por 3 epochs
+    es = EarlyStopping(monitor='val_accuracy', patience=4, mode="max")
+    tb = TensorBoard(f"./modelos/upgrade/logs")
+    callbacks_list = [checkpoint, es, tb]
+    # treina    
+    model.fit(cria_batches(batch_size, img_shape, train_data=True),  epochs=10, use_multiprocessing=True, callbacks=callbacks_list, validation_data=cria_batches(batch_size, img_shape, valid_data=True)) #verbose=0
+    model = keras.models.load_model(f"./modelos/upgrade/modelo CNN {num_modelo}")
+    return model.evaluate(cria_batches(batch_size, img_shape, valid_data=True))
